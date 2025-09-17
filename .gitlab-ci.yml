@@ -1,0 +1,86 @@
+stages:
+  - build
+  - push
+  - deploy
+
+variables:
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  FRONTEND_IMAGE: "${CI_REGISTRY_IMAGE}/frontend:${IMAGE_TAG}"
+  BACKEND_IMAGE:  "${CI_REGISTRY_IMAGE}/backend:${IMAGE_TAG}"
+
+build_images:
+  stage: build
+  tags:
+    - self-hosted
+  script:
+    - echo "Building frontend image..."
+    - docker build -t "$FRONTEND_IMAGE" -f frontend/Dockerfile frontend
+    - echo "Building backend image..."
+    - docker build -t "$BACKEND_IMAGE" -f backend/Dockerfile backend
+  only:
+    - main
+  artifacts:
+    expire_in: 1h
+    when: on_success
+  retry: 1
+
+push_images:
+  stage: push
+  tags:
+    - self-hosted
+  script:
+    - echo "Logging into registry..."
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - docker push "$FRONTEND_IMAGE"
+    - docker push "$BACKEND_IMAGE"
+  only:
+    - main
+  dependencies:
+    - build_images
+  retry: 1
+
+deploy_to_prod:
+  stage: deploy
+  tags:
+    - self-hosted
+  environment:
+    name: production
+    url: http://$DEPLOY_HOST
+  before_script:
+    - mkdir -p ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - eval "$(ssh-agent -s)"
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+  script:
+    - |
+      # -- create a deploy docker-compose on the runner with the exact image tags used --
+      cat > docker-compose.deploy.yml <<EOF
+      version: "3.9"
+      services:
+        frontend:
+          image: ${FRONTEND_IMAGE}
+          restart: always
+          ports:
+            - "80:80"
+          deploy:
+            restart_policy:
+              condition: on-failure
+
+        backend:
+          image: ${BACKEND_IMAGE}
+          restart: always
+          environment:
+            - NODE_ENV=production
+          expose:
+            - "3000"
+      networks:
+        default:
+          name: app_network
+      EOF
+
+    - echo "Sending compose file and envs to server..."
+    - rsync -avz --delete docker-compose.deploy.yml ${DEPLOY_USER}@${DEPLOY_HOST}:/home/${DEPLOY_USER}/deploy/docker-compose.yml
+    - ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd /home/${DEPLOY_USER}/deploy && docker compose pull && docker compose up -d --remove-orphans"
+  only:
+    - main
+  retry: 1
