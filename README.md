@@ -9,4 +9,5 @@ I have created an AWS EC2 instance and performed all tasks on it.
 
 Task 2:
 
-I have added .gitlab-ci.yml file in which I have mentioned the SSH_PRIVATE_KEY variable, which is a GitLab CI/CD variable for securely storing the SSH key for ec2 instance.  
+-> I have added .gitlab-ci.yml file in which I have mentioned the SSH_PRIVATE_KEY, SSH_KNOWN_HOSTS, DEPLOY_USER, DEPLOY_HOST, CI_REGISTRY_USER & CI_REGISTRY_PASSWORD variables. Which is a GitLab CI/CD variable for securely storing the details for an EC2 instance.
+-> I have to take the deploy named runner on the server. That is configured on the server and, according to that, managed gitlab-ci.yml
